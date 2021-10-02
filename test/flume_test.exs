@@ -6,6 +6,27 @@ defmodule FlumeTest do
     assert Flume.new() == %Flume{results: %{}, errors: %{}, halted: false}
   end
 
+  describe "result returns result of pipeline" do
+    test "result/1 returns ok tuple if no errors" do
+      flume =
+        Flume.new()
+        |> Flume.run(:a, fn -> {:ok, 2} end)
+        |> Flume.result()
+
+      assert flume == {:ok, %{a: 2}}
+    end
+
+    test "result/1 returns error tuple if any error" do
+      flume =
+        Flume.new()
+        |> Flume.run(:a, fn -> {:ok, 2} end)
+        |> Flume.run(:this_fails, fn _ -> {:error, :for_some_reason} end)
+        |> Flume.result()
+
+      assert flume == {:error, %{this_fails: :for_some_reason}, %{a: 2}}
+    end
+  end
+
   describe "run" do
     test "run/3 executes callback and result accumulated" do
       flume =

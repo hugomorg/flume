@@ -70,6 +70,26 @@ defmodule Flume do
     end
   end
 
+  @doc """
+  Returns result of pipeline.
+
+  ## Examples
+
+      iex> Flume.new() |> Flume.run(:a, fn -> {:ok, 2} end) |> Flume.result()
+      {:ok, %{a: 2}}
+
+      iex> Flume.new() |> Flume.run(:a, fn -> {:error, :idk} end) |> Flume.result()
+      {:error, %{a: :idk}, %{}}
+  """
+  @spec result(Flume.t()) :: {:ok, map()} | {:error, map(), map()}
+  def result(%Flume{results: results, errors: errors}) when map_size(errors) == 0 do
+    {:ok, results}
+  end
+
+  def result(%Flume{results: results, errors: errors}) do
+    {:error, errors, results}
+  end
+
   defp apply_process_callback(callback, results) when is_function(callback, 1) do
     callback.(results)
   end
