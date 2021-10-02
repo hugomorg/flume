@@ -27,7 +27,9 @@ defmodule Flume do
   @doc """
   Executes passed in callback synchronously - and stores the returned result.
 
-  Callback has to be a 1-arity function, and is passed the current accumulated results.
+  Callback has to be a 0- or 1-arity function, and if it accepts an argument it is passed
+  the current accumulated results.
+
   It must return a `{:ok, result}` or a `{:error, reason}` tuple. In the first case,
   the result will be added to the accumulator, and in the second case the error will be stored.
 
@@ -49,9 +51,10 @@ defmodule Flume do
 
   def run(%Flume{halted: true} = flume, _tag, _process_fun, _success_fun), do: flume
 
-  def run(%Flume{results: results, errors: errors} = flume, tag, fun, success_fun)
-      when is_atom(tag) and is_function(fun, 1) do
-    case fun.(results) do
+  def run(%Flume{results: results, errors: errors} = flume, tag, process_fun, success_fun)
+      when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) and
+             is_function(success_fun, 1) do
+    case apply_process_callback(process_fun, results) do
       {:ok, result} ->
         results = Map.put(results, tag, success_fun.(result))
         %Flume{flume | results: results}
@@ -65,5 +68,13 @@ defmodule Flume do
                 inspect(bad_match)
               }"
     end
+  end
+
+  defp apply_process_callback(callback, results) when is_function(callback, 1) do
+    callback.(results)
+  end
+
+  defp apply_process_callback(callback, _results) do
+    callback.()
   end
 end
