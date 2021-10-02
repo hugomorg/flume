@@ -30,5 +30,14 @@ defmodule FlumeTest do
                halted: true
              }
     end
+
+    test "run/4 processes result in success case with callback" do
+      flume =
+        Flume.new()
+        |> Flume.run(:a, fn _ -> {:ok, 2} end)
+        |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, &(&1 * 100))
+
+      assert flume == %Flume{results: %{a: 2, b: 400}, errors: %{}, halted: false}
+    end
   end
 end

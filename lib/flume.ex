@@ -6,6 +6,7 @@ defmodule Flume do
   @type t :: %__MODULE__{}
   @type tag :: atom()
   @type callback_fun :: (map() -> {:ok, tag()} | {:error, atom()})
+  @type success_fun :: (map() -> any())
 
   defstruct results: %{}, errors: %{}, halted: false
 
@@ -32,23 +33,27 @@ defmodule Flume do
 
   A tag annotates the operation.
 
+  An optional extra callback can be passed in which is given the result of a successful operation.
+
   ## Examples
 
       Flume.new()
       |> Flume.run(:a, fn _ -> {:ok, 2} end)
-      |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end)
+      |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, fn n -> n * 100 end)
       |> Flume.run(:this_fails, fn _ -> {:error, :for_some_reason} end)
       |> Flume.run(:this_wont_run, fn _ -> raise "boom" end)
 
   """
-  @spec run(t(), tag(), callback_fun) :: t()
-  def run(%Flume{halted: true} = flume, _tag, _fun), do: flume
+  @spec run(t(), tag(), callback_fun, success_fun) :: t()
+  def run(flume, tag, process_fun, success_fun \\ & &1)
 
-  def run(%Flume{results: results, errors: errors} = flume, tag, fun)
+  def run(%Flume{halted: true} = flume, _tag, _process_fun, _success_fun), do: flume
+
+  def run(%Flume{results: results, errors: errors} = flume, tag, fun, success_fun)
       when is_atom(tag) and is_function(fun, 1) do
     case fun.(results) do
       {:ok, result} ->
-        results = Map.put(results, tag, result)
+        results = Map.put(results, tag, success_fun.(result))
         %Flume{flume | results: results}
 
       {:error, error} ->
