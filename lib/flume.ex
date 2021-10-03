@@ -5,7 +5,7 @@ defmodule Flume do
 
   @type t :: %__MODULE__{}
   @type tag :: atom()
-  @type callback_fun :: (map() -> {:ok, tag()} | {:error, atom()})
+  @type process_fun :: (map() -> {:ok, tag()} | {:error, atom()})
   @type success_fun :: (map() -> any())
 
   defstruct results: %{}, errors: %{}, halted: false, tasks: []
@@ -46,7 +46,7 @@ defmodule Flume do
       |> Flume.run(:this_wont_run, fn _ -> raise "boom" end)
 
   """
-  @spec run(t(), tag(), callback_fun, success_fun) :: t()
+  @spec run(t(), tag(), process_fun(), success_fun()) :: t()
   def run(flume, tag, process_fun, success_fun \\ & &1)
 
   def run(%Flume{halted: true} = flume, _tag, _process_fun, _success_fun), do: flume
@@ -64,9 +64,7 @@ defmodule Flume do
         %Flume{flume | errors: errors, halted: true}
 
       bad_match ->
-        raise "Expected either an `{:ok, result}` or {:error, reason} tuple, but got #{
-                inspect(bad_match)
-              }"
+        match_error(tag, bad_match)
     end
   end
 
@@ -88,7 +86,7 @@ defmodule Flume do
       |> Flume.result()
 
   """
-  @spec run_async(t(), tag(), callback_fun, success_fun) :: t()
+  @spec run_async(t(), tag(), process_fun(), success_fun()) :: t()
   def run_async(flume, tag, process_fun, success_fun \\ & &1)
 
   def run_async(%Flume{halted: true} = flume, _tag, _process_fun, _success_fun), do: flume
@@ -137,6 +135,7 @@ defmodule Flume do
     |> Enum.map(fn
       {tag, {:ok, result}, success_fun} -> {:results, {tag, success_fun.(result)}}
       {tag, {:error, reason}, _success_fun} -> {:errors, {tag, reason}}
+      {tag, bad_match, _success_fun} -> match_error(tag, bad_match)
     end)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
     |> Enum.map(fn {k, v} -> {k, Map.new(v)} end)
@@ -168,5 +167,12 @@ defmodule Flume do
 
   defp apply_process_callback(callback, _results) do
     callback.()
+  end
+
+  defp match_error(tag, bad_match) do
+    raise """
+    #{tag}: Expected either an `{:ok, result}` or `{:error, reason}` tuple
+    from the process callback () but got #{inspect(bad_match)}
+    """
   end
 end
