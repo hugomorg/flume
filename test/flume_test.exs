@@ -3,7 +3,7 @@ defmodule FlumeTest do
   doctest Flume
 
   test "new/0 returns empty struct" do
-    assert Flume.new() == %Flume{results: %{}, errors: %{}, halted: false}
+    assert Flume.new() == %Flume{results: %{}, errors: %{}, halted: false, halt_on_errors: true}
   end
 
   describe "result returns result of pipeline" do
@@ -34,10 +34,11 @@ defmodule FlumeTest do
         |> Flume.run(:a, fn -> {:ok, 2} end)
         |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end)
 
-      assert flume == %Flume{results: %{a: 2, b: 4}, errors: %{}, halted: false}
+      assert flume.results == %{a: 2, b: 4}
+      assert flume.errors == %{}
     end
 
-    test "run/3 stops at first error" do
+    test "run/3 stops at first error by default" do
       flume =
         Flume.new()
         |> Flume.run(:a, fn -> {:ok, 2} end)
@@ -45,11 +46,22 @@ defmodule FlumeTest do
         |> Flume.run(:this_fails, fn _ -> {:error, :for_some_reason} end)
         |> Flume.run(:this_wont_run, fn _ -> raise "boom" end)
 
-      assert flume == %Flume{
-               results: %{a: 2, b: 4},
-               errors: %{this_fails: :for_some_reason},
-               halted: true
-             }
+      assert flume.results == %{a: 2, b: 4}
+      assert flume.errors == %{this_fails: :for_some_reason}
+      assert flume.halted
+    end
+
+    test "run/3 doesn't at first error if `:halt_on_errors` specified" do
+      flume =
+        Flume.new(halt_on_errors: false)
+        |> Flume.run(:a, fn -> {:ok, 2} end)
+        |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end)
+        |> Flume.run(:this_fails, fn _ -> {:error, :for_some_reason} end)
+        |> Flume.run(:this_is, fn _ -> {:error, :another_error} end)
+
+      assert flume.results == %{a: 2, b: 4}
+      assert flume.errors == %{this_fails: :for_some_reason, this_is: :another_error}
+      assert flume.halted
     end
 
     test "run/4 processes result in success case with callback" do
@@ -58,7 +70,8 @@ defmodule FlumeTest do
         |> Flume.run(:a, fn -> {:ok, 2} end)
         |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, &(&1 * 100))
 
-      assert flume == %Flume{results: %{a: 2, b: 400}, errors: %{}, halted: false}
+      assert flume.results == %{a: 2, b: 400}
+      assert flume.errors == %{}
     end
   end
 

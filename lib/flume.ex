@@ -8,20 +8,25 @@ defmodule Flume do
   @type process_fun :: (map() -> {:ok, tag()} | {:error, atom()})
   @type success_fun :: (map() -> any())
 
-  defstruct results: %{}, errors: %{}, halted: false, tasks: []
+  defstruct [:halt_on_errors, results: %{}, errors: %{}, halted: false, tasks: []]
 
   @doc """
   Returns empty Flume struct.
 
+  Options:
+
+  - `:halt_on_errors`: if false, `flume` won't stop if `Flume.run` matches an error
+
   ## Examples
 
       iex> Flume.new()
-      %Flume{}
+      %Flume{halt_on_errors: true}
 
   """
-  @spec new() :: t()
-  def new do
-    %__MODULE__{}
+  @spec new(list()) :: t()
+  def new(opts \\ []) do
+    halt_on_errors = Keyword.get(opts, :halt_on_errors, true)
+    %__MODULE__{halt_on_errors: halt_on_errors}
   end
 
   @doc """
@@ -49,7 +54,8 @@ defmodule Flume do
   @spec run(t(), tag(), process_fun(), success_fun()) :: t()
   def run(flume, tag, process_fun, success_fun \\ & &1)
 
-  def run(%Flume{halted: true} = flume, _tag, _process_fun, _success_fun), do: flume
+  def run(%Flume{halted: true, halt_on_errors: true} = flume, _tag, _process_fun, _success_fun),
+    do: flume
 
   def run(%Flume{results: results, errors: errors} = flume, tag, process_fun, success_fun)
       when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) and
@@ -89,7 +95,13 @@ defmodule Flume do
   @spec run_async(t(), tag(), process_fun(), success_fun()) :: t()
   def run_async(flume, tag, process_fun, success_fun \\ & &1)
 
-  def run_async(%Flume{halted: true} = flume, _tag, _process_fun, _success_fun), do: flume
+  def run_async(
+        %Flume{halted: true, halt_on_errors: true} = flume,
+        _tag,
+        _process_fun,
+        _success_fun
+      ),
+      do: flume
 
   def run_async(%Flume{tasks: tasks} = flume, tag, process_fun, success_fun)
       when is_atom(tag) and is_function(process_fun, 0) and is_function(success_fun, 1) do
