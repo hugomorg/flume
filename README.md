@@ -47,8 +47,8 @@ but that can easily get out of hand. `flume` allows you to do something which is
 defmodule YourModule do
   def call(id) do
     Flume.new()
-    |> Flume.run(&fetch_rates/0)
-    |> Flume.run(&fetch_tax/0)
+    |> Flume.run_async(&fetch_rates/0)
+    |> Flume.run_async(&fetch_tax/0)
     |> Flume.run(fn -> get_user(id) end)
     |> Flume.run(fn %{user: user} -> get_user_items(user) end)
     |> Flume.result()
@@ -60,7 +60,7 @@ defmodule YourModule do
 end
 ```
 
-All that it asks is that your callbacks return predictable tuples, either `{:ok, result}` or `{:error, reason}`. It will stop at the first error and nothing later will be executed.
+All that it asks is that your callbacks return predictable tuples, either `{:ok, result}` or `{:error, reason}`. It will stop at the first error and nothing later will be executed - unless `run_async` is used. See the docs for more info.
 
 ## Installation
 

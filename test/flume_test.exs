@@ -61,4 +61,29 @@ defmodule FlumeTest do
       assert flume == %Flume{results: %{a: 2, b: 400}, errors: %{}, halted: false}
     end
   end
+
+  describe "run_async" do
+    test "run_async/3 concurrently executes functions and resolves results at end" do
+      flume =
+        Flume.new()
+        |> Flume.run(:a, fn -> {:ok, 2} end)
+        |> Flume.run_async(:b, fn data -> {:ok, data.a * 2} end)
+        |> Flume.run_async(:c, fn -> {:ok, 4} end, &(&1 * 2))
+        |> Flume.result()
+
+      assert flume == {:ok, %{a: 2, b: 4, c: 8}}
+    end
+
+    test "run_async/3 concurrently executes functions and resolves errors at end" do
+      flume =
+        Flume.new()
+        |> Flume.run(:a, fn -> {:ok, 2} end)
+        |> Flume.run_async(:b, fn data -> {:ok, data.a * 2} end)
+        |> Flume.run_async(:c, fn -> {:ok, 4} end, &(&1 * 2))
+        |> Flume.run_async(:d, fn -> {:error, :fail} end)
+        |> Flume.result()
+
+      assert flume == {:error, %{d: :fail}, %{a: 2, b: 4, c: 8}}
+    end
+  end
 end
