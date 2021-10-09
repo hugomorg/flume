@@ -1,5 +1,6 @@
 defmodule FlumeTest do
   use ExUnit.Case
+  require Logger
   doctest Flume
 
   test "new/0 returns empty struct" do
@@ -64,14 +65,31 @@ defmodule FlumeTest do
       assert flume.halted
     end
 
-    test "run/4 processes result in success case with callback" do
+    test "run/4 processes result in success case with on_success callback" do
       flume =
         Flume.new()
         |> Flume.run(:a, fn -> {:ok, 2} end)
-        |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, &(&1 * 100))
+        |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, on_success: &(&1 * 100))
 
       assert flume.results == %{a: 2, b: 400}
       assert flume.errors == %{}
+    end
+
+    test "run/4 processes error in failure case with on_error callback" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          flume =
+            Flume.new()
+            |> Flume.run(:a, fn -> {:ok, 2} end)
+            |> Flume.run(:b, fn -> {:error, :for_some_reason} end,
+              on_error: &Logger.error("Operation failed #{&1}")
+            )
+            |> Flume.result()
+
+          assert {:error, _, _} = flume
+        end)
+
+      assert log =~ "Operation failed for_some_reason"
     end
   end
 
@@ -81,7 +99,7 @@ defmodule FlumeTest do
         Flume.new()
         |> Flume.run(:a, fn -> {:ok, 2} end)
         |> Flume.run_async(:b, fn data -> {:ok, data.a * 2} end)
-        |> Flume.run_async(:c, fn -> {:ok, 4} end, &(&1 * 2))
+        |> Flume.run_async(:c, fn -> {:ok, 4} end, on_success: &(&1 * 2))
         |> Flume.result()
 
       assert flume == {:ok, %{a: 2, b: 4, c: 8}}
@@ -92,7 +110,7 @@ defmodule FlumeTest do
         Flume.new()
         |> Flume.run(:a, fn -> {:ok, 2} end)
         |> Flume.run_async(:b, fn data -> {:ok, data.a * 2} end)
-        |> Flume.run_async(:c, fn -> {:ok, 4} end, &(&1 * 2))
+        |> Flume.run_async(:c, fn -> {:ok, 4} end, on_success: &(&1 * 2))
         |> Flume.run_async(:d, fn -> {:error, :fail} end)
         |> Flume.result()
 
