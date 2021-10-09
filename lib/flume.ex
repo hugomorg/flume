@@ -7,7 +7,7 @@ defmodule Flume do
   @type tag :: atom()
   @type process_fun :: (map() -> {:ok, tag()} | {:error, atom()})
 
-  defstruct [:halt_on_errors, results: %{}, errors: %{}, halted: false, tasks: []]
+  defstruct [:halt_on_errors, results: %{}, errors: %{}, halted: false, tasks: %{}]
 
   @doc """
   Returns empty Flume struct.
@@ -112,20 +112,16 @@ defmodule Flume do
 
   def run_async(%Flume{tasks: tasks} = flume, tag, process_fun, opts)
       when is_atom(tag) and is_function(process_fun, 0) do
-    on_success = Keyword.get(opts, :on_success)
-    on_error = Keyword.get(opts, :on_error)
-
-    task_fun = fn -> {tag, process_fun.(), on_success, on_error} end
-    %Flume{flume | tasks: [Task.async(task_fun) | tasks]}
+    tasks = Map.put(tasks, tag, %{task: Task.async(process_fun), opts: opts})
+    %Flume{flume | tasks: tasks}
   end
 
   def run_async(%Flume{tasks: tasks, results: results} = flume, tag, process_fun, opts)
       when is_atom(tag) and is_function(process_fun, 1) do
-    on_success = Keyword.get(opts, :on_success)
-    on_error = Keyword.get(opts, :on_error)
+    task_fun = fn -> process_fun.(results) end
+    tasks = Map.put(tasks, tag, %{task: Task.async(task_fun), opts: opts})
 
-    task_fun = fn -> {tag, process_fun.(results), on_success, on_error} end
-    %Flume{flume | tasks: [Task.async(task_fun) | tasks]}
+    %Flume{flume | tasks: tasks}
   end
 
   @doc """
@@ -140,17 +136,20 @@ defmodule Flume do
       {:error, %{a: :idk}, %{}}
   """
   @spec result(Flume.t()) :: {:ok, map()} | {:error, map(), map()}
-  def result(%Flume{results: results, errors: errors, tasks: []}) when map_size(errors) == 0 do
+  def result(%Flume{results: results, errors: errors, tasks: tasks})
+      when map_size(errors) == 0 and map_size(tasks) == 0 do
     {:ok, results}
   end
 
-  def result(%Flume{results: results, errors: errors, tasks: []}) do
+  def result(%Flume{results: results, errors: errors, tasks: tasks}) when map_size(tasks) == 0 do
     {:error, errors, results}
   end
 
   def result(%Flume{} = flume) do
-    resolved = resolve_tasks(flume)
-    flume |> merge_results(resolved) |> Map.put(:tasks, []) |> result()
+    flume
+    |> resolve_tasks()
+    |> Map.put(:tasks, %{})
+    |> result()
   end
 
   defp maybe_apply_on_success(_fun = nil, result, _tag), do: result
@@ -169,43 +168,26 @@ defmodule Flume do
     error
   end
 
-  defp resolve_tasks(%Flume{tasks: tasks}) do
-    tasks
-    |> Task.await_many()
-    |> Enum.map(fn
-      {tag, {:ok, result}, success_fun, _error_fun} ->
-        result = maybe_apply_on_success(success_fun, result, tag)
-        {:results, {tag, result}}
+  defp resolve_tasks(%Flume{tasks: tasks} = flume) do
+    Enum.reduce(tasks, flume, &resolve_task/2)
+  end
 
-      {tag, {:error, reason}, _success_fun, error_fun} ->
-        maybe_apply_on_error(error_fun, reason, tag)
-        {:errors, {tag, reason}}
+  defp resolve_task({tag, %{task: task, opts: opts}}, %Flume{} = flume) do
+    on_success = Keyword.get(opts, :on_success)
+    on_error = Keyword.get(opts, :on_error)
 
-      {tag, bad_match, _success_fun, _error_fun} ->
+    case Task.await(task) do
+      {:ok, result} ->
+        result = maybe_apply_on_success(on_success, result, tag)
+        %Flume{flume | results: Map.put(flume.results, tag, result)}
+
+      {:error, reason} ->
+        maybe_apply_on_error(on_error, reason, tag)
+        %Flume{flume | errors: Map.put(flume.errors, tag, reason)}
+
+      bad_match ->
         match_error(tag, bad_match)
-    end)
-    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Enum.map(fn {k, v} -> {k, Map.new(v)} end)
-    |> Enum.into(%{})
-  end
-
-  defp merge_results(%Flume{results: results, errors: errors} = flume, %{
-         results: task_results,
-         errors: task_errors
-       }) do
-    %Flume{
-      flume
-      | results: Map.merge(results, task_results),
-        errors: Map.merge(errors, task_errors)
-    }
-  end
-
-  defp merge_results(%Flume{results: results} = flume, %{results: task_results}) do
-    %Flume{flume | results: Map.merge(results, task_results)}
-  end
-
-  defp merge_results(%Flume{errors: errors} = flume, %{errors: task_errors}) do
-    %Flume{flume | errors: Map.merge(errors, task_errors)}
+    end
   end
 
   defp apply_process_callback(callback, results) when is_function(callback, 1) do
