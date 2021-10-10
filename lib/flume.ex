@@ -16,6 +16,10 @@ defmodule Flume do
     global_funs: %{}
   ]
 
+  defmodule FlumeError do
+    defexception [:message]
+  end
+
   @doc """
   Returns empty Flume struct.
 
@@ -95,7 +99,7 @@ defmodule Flume do
       |> case do
         {:ok, result} -> handle_process_callback_success(flume, tag, result, on_success)
         {:error, reason} -> handle_process_callback_error(flume, tag, reason, on_error)
-        bad_match -> match_error(tag, bad_match)
+        bad_match -> raise_match_error!(tag, bad_match)
       end
     end
   end
@@ -209,7 +213,7 @@ defmodule Flume do
     |> case do
       {:ok, result} -> handle_process_callback_success(flume, tag, result, on_success)
       {:error, reason} -> handle_process_callback_error(flume, tag, reason, on_error)
-      bad_match -> match_error(tag, bad_match)
+      bad_match -> raise_match_error!(tag, bad_match)
     end
   end
 
@@ -244,8 +248,9 @@ defmodule Flume do
   defp maybe_halt(%Flume{halted: true} = flume), do: flume
   defp maybe_halt(%Flume{} = flume), do: %Flume{flume | halted: true}
 
-  defp match_error(tag, bad_match) do
-    raise "#{tag}: Expected either an `{:ok, result}` or `{:error, reason}` tuple " <>
+  defp raise_match_error!(tag, bad_match) do
+    raise __MODULE__.FlumeError,
+          "#{tag}: Expected either an `{:ok, result}` or `{:error, reason}` tuple " <>
             "from the process callback but got #{inspect(bad_match)}"
   end
 end

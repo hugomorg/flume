@@ -197,7 +197,7 @@ defmodule FlumeTest do
 
     test "run/3 rejects operations that don't return accepted tuples" do
       assert_raise(
-        RuntimeError,
+        Flume.FlumeError,
         "a: Expected either an `{:ok, result}` or `{:error, reason}` tuple from the process callback but got {:not_allowed, 2}",
         fn ->
           Flume.run(Flume.new(), :a, fn -> {:not_allowed, 2} end)
@@ -281,7 +281,7 @@ defmodule FlumeTest do
 
     test "run_async/3 rejects operations that don't return accepted tuples" do
       assert_raise(
-        RuntimeError,
+        Flume.FlumeError,
         "a: Expected either an `{:ok, result}` or `{:error, reason}` tuple from the process callback but got {:not_allowed, 2}",
         fn ->
           Flume.new() |> Flume.run_async(:a, fn -> {:not_allowed, 2} end) |> Flume.result()
