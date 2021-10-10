@@ -44,6 +44,8 @@ defmodule Flume do
   or the tag and the result. The return value is stored in the results
   - `on_error`: 1 or 2 arity callback which is given the error reason of the operation if it failed,
   or the tag and the error
+  - `wait_for`: by default async operations are resolved in `Flume.result`. If you want them resolved before
+  so that they are accessible in earlier callbacks, specify the async operation tag here
 
   ## Examples
 
@@ -60,10 +62,14 @@ defmodule Flume do
   def run(%Flume{halted: true, halt_on_errors: true} = flume, _tag, _process_fun, _opts),
     do: flume
 
-  def run(%Flume{results: results, errors: errors} = flume, tag, process_fun, opts)
+  def run(%Flume{errors: errors} = flume, tag, process_fun, opts)
       when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
+    wait_for = Keyword.get(opts, :wait_for, [])
+
+    %Flume{results: results} =
+      flume = flume |> resolve_tasks(wait_for) |> Map.update!(:tasks, &Map.drop(&1, wait_for))
 
     case apply_process_callback(process_fun, results) do
       {:ok, result} ->
@@ -166,6 +172,12 @@ defmodule Flume do
   defp maybe_apply_on_error(fun, error, tag) when is_function(fun, 2) do
     fun.(tag, error)
     error
+  end
+
+  defp resolve_tasks(%Flume{tasks: tasks} = flume, only) do
+    tasks
+    |> Map.take(only)
+    |> Enum.reduce(flume, &resolve_task/2)
   end
 
   defp resolve_tasks(%Flume{tasks: tasks} = flume) do

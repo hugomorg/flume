@@ -91,6 +91,20 @@ defmodule FlumeTest do
 
       assert log =~ "Operation failed for_some_reason"
     end
+
+    test "run/4 wait_for option awaits async tasks so that they are accessible in callback" do
+      flume =
+        Flume.new()
+        |> Flume.run_async(:a, fn ->
+          :timer.sleep(1)
+          {:ok, :ready}
+        end)
+        |> Flume.run(:b, fn %{a: :ready} -> {:ok, :waited} end, wait_for: [:a])
+
+      assert flume.results == %{a: :ready, b: :waited}
+      assert flume.tasks == %{}
+      assert flume.errors == %{}
+    end
   end
 
   describe "run_async" do
