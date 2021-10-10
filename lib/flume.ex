@@ -14,7 +14,7 @@ defmodule Flume do
 
   Options:
 
-  - `:halt_on_errors`: if false, `flume` won't stop if `Flume.run` matches an error
+  - `:halt_on_errors`: if `false`, the steps won't stop if a `Flume.run` step returns an error
 
   ## Examples
 
@@ -32,12 +32,15 @@ defmodule Flume do
   Executes passed in callback synchronously - and stores the returned result.
 
   Callback has to be a 0- or 1-arity function, and if it accepts an argument it is passed
-  the current accumulated results.
+  the current accumulated results from previous steps.
 
-  It must return a `{:ok, result}` or a `{:error, reason}` tuple. In the first case,
-  the result will be added to the accumulator, and in the second case the error will be stored.
+  It must return a `{:ok, result}` or a `{:error, reason}` tuple. This is so `Flume`
+  knows if the caller intends for the operation to be considered a success or failure.
 
-  A tag annotates the operation.
+  In the first case, the result will be added to the accumulated results, and in the second case
+  the error will be stored with other accumulated errors (if any).
+
+  A tag uniquely annotates the operation - duplicate tags will cause the second tag to overwrite the first.
 
   Several options can be passed in:
   - `on_success`: 1 or 2 arity callback which is given the result of the operation if successful,
@@ -49,18 +52,19 @@ defmodule Flume do
 
   ## Examples
 
-      Flume.new()
-      |> Flume.run(:a, fn _ -> {:ok, 2} end)
-      |> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, on_success: fn n -> n * 100 end)
-      |> Flume.run(:this_fails, fn _ -> {:error, :for_some_reason} end)
-      |> Flume.run(:this_wont_run, fn _ -> raise "boom" end)
+      iex> Flume.new() |>
+      iex> Flume.run(:a, fn -> {:ok, 2} end) |>
+      iex> Flume.run(:b, fn data -> {:ok, 2 * data.a} end, on_success: & &1 * 100) |>
+      iex> Flume.run(:this_fails, fn -> {:error, :for_some_reason} end) |>
+      iex> Flume.run(:this_wont_run, fn -> raise "boom" end)
 
   """
   @spec run(t(), tag(), process_fun(), list()) :: t()
   def run(flume, tag, process_fun, opts \\ [])
 
-  def run(%Flume{halted: true, halt_on_errors: true} = flume, _tag, _process_fun, _opts),
-    do: flume
+  def run(%Flume{halted: true, halt_on_errors: true} = flume, _tag, _process_fun, _opts) do
+    flume
+  end
 
   def run(%Flume{errors: errors} = flume, tag, process_fun, opts)
       when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) do
@@ -91,18 +95,19 @@ defmodule Flume do
   Executes passed in callback asynchronously - and stores the returned result. All asynchronous
   operations are resolved when `Flume.result/1` is called.
 
-  Apart from the asynchronous nature of this function, it behaves in the same with as `Flume.run`.
+  Apart from the asynchronous nature of this function, it behaves largely the same as `Flume.run`.
 
-  Obviously using this in combination with `Flume.run` is less safe, because it won't necessarily stop
-  at the first error. Also the results of the asynchronous operations will not be available until the end.
+  Obviously using this in combination with `Flume.run` is less safe (unless you use the `wait_for` option),
+  because it won't necessarily stop at the first error. Also the results of the asynchronous operations
+  will not be available until the end.
 
   ## Examples
 
-      Flume.new()
-      |> Flume.run(:a, fn -> {:ok, 2} end)
-      |> Flume.run_async(:b, fn data -> {:ok, data.a * 2} end)
-      |> Flume.run_async(:c, fn -> {:ok, 4} end, on_success: & &1 * 2)
-      |> Flume.result()
+      iex> Flume.new() |>
+      iex> Flume.run(:a, fn -> {:ok, 2} end) |>
+      iex> Flume.run_async(:b, fn data -> {:ok, data.a * 2} end) |>
+      iex> Flume.run_async(:c, fn -> {:ok, 4} end, on_success: & &1 * 2) |>
+      iex> Flume.result()
 
   """
   @spec run_async(t(), tag(), process_fun(), list()) :: t()
