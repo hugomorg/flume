@@ -64,7 +64,7 @@ defmodule FlumeTest do
       assert flume.halted
     end
 
-    test "run/3 doesn't at first error if `:halt_on_errors` specified" do
+    test "run/3 doesn't stop at first error if `:halt_on_errors` specified" do
       flume =
         Flume.new(halt_on_errors: false)
         |> Flume.run(:a, fn -> {:ok, 2} end)
@@ -74,7 +74,7 @@ defmodule FlumeTest do
 
       assert flume.results == %{a: 2, b: 4}
       assert flume.errors == %{this_fails: :for_some_reason, this_is: :another_error}
-      assert flume.halted
+      refute flume.halted
     end
 
     test "run/4 processes result in success case with on_success callback" do
@@ -131,6 +131,20 @@ defmodule FlumeTest do
       assert flume.results == %{a: :ready, b: :waited}
       assert flume.tasks == %{}
       assert flume.errors == %{}
+    end
+
+    test "run/4 wait_for option when async errors out stops flume" do
+      flume =
+        Flume.new()
+        |> Flume.run_async(:a, fn ->
+          :timer.sleep(1)
+          {:error, :ready}
+        end)
+        |> Flume.run(:b, fn -> {:should, :not_run} end, wait_for: [:a])
+
+      assert flume.results == %{}
+      assert flume.tasks == %{}
+      assert flume.errors == %{a: :ready}
     end
 
     test "run/3 rejects operations that don't return accepted tuples" do

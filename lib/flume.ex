@@ -72,22 +72,29 @@ defmodule Flume do
     on_error = Keyword.get(opts, :on_error)
     wait_for = Keyword.get(opts, :wait_for, [])
 
-    %Flume{results: results} =
+    %Flume{results: results, halted: halted, halt_on_errors: halt_on_errors} =
       flume = flume |> resolve_tasks(wait_for) |> Map.update!(:tasks, &Map.drop(&1, wait_for))
 
-    case apply_process_callback(process_fun, results) do
-      {:ok, result} ->
-        result = maybe_apply_on_success(on_success, result, tag)
-        results = Map.put(results, tag, result)
-        %Flume{flume | results: results}
+    # Check synchronised tasks have halted the pipeline
+    if halted do
+      flume
+    else
+      process_fun
+      |> apply_process_callback(results)
+      |> case do
+        {:ok, result} ->
+          result = maybe_apply_on_success(on_success, result, tag)
+          results = Map.put(results, tag, result)
+          %Flume{flume | results: results}
 
-      {:error, error} ->
-        maybe_apply_on_error(on_error, error, tag)
-        errors = Map.put(errors, tag, error)
-        %Flume{flume | errors: errors, halted: true}
+        {:error, error} ->
+          maybe_apply_on_error(on_error, error, tag)
+          errors = Map.put(errors, tag, error)
+          %Flume{flume | errors: errors, halted: halt_on_errors}
 
-      bad_match ->
-        match_error(tag, bad_match)
+        bad_match ->
+          match_error(tag, bad_match)
+      end
     end
   end
 
@@ -199,7 +206,7 @@ defmodule Flume do
 
       {:error, reason} ->
         maybe_apply_on_error(on_error, reason, tag)
-        %Flume{flume | errors: Map.put(flume.errors, tag, reason)}
+        %Flume{flume | errors: Map.put(flume.errors, tag, reason), halted: true}
 
       bad_match ->
         match_error(tag, bad_match)
