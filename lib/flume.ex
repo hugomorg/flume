@@ -142,20 +142,19 @@ defmodule Flume do
       {:error, %{a: :idk}, %{}}
   """
   @spec result(Flume.t()) :: {:ok, map()} | {:error, map(), map()}
-  def result(%Flume{results: results, errors: errors, tasks: tasks})
-      when map_size(errors) == 0 and map_size(tasks) == 0 do
-    {:ok, results}
-  end
-
-  def result(%Flume{results: results, errors: errors, tasks: tasks}) when map_size(tasks) == 0 do
-    {:error, errors, results}
-  end
-
-  def result(%Flume{} = flume) do
+  def result(%Flume{tasks: tasks} = flume) when map_size(tasks) > 0 do
     flume
     |> resolve_tasks()
     |> Map.put(:tasks, %{})
     |> result()
+  end
+
+  def result(%Flume{results: results, errors: errors}) when map_size(errors) > 0 do
+    {:error, errors, results}
+  end
+
+  def result(%Flume{results: results}) do
+    {:ok, results}
   end
 
   defp maybe_apply_on_success(_fun = nil, result, _tag), do: result
