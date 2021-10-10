@@ -4,7 +4,13 @@ defmodule FlumeTest do
   doctest Flume
 
   test "new/0 returns empty struct" do
-    assert Flume.new() == %Flume{results: %{}, errors: %{}, halted: false, halt_on_errors: true}
+    assert Flume.new() == %Flume{
+             results: %{},
+             errors: %{},
+             halted: false,
+             halt_on_errors: true,
+             global_funs: %{on_error: nil}
+           }
   end
 
   describe "result returns result of pipeline" do
@@ -119,6 +125,34 @@ defmodule FlumeTest do
       assert log =~ "Operation b failed for_some_reason"
     end
 
+    test "run/4 processes error in failure case with global on_error callback" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          flume =
+            Flume.new(on_error: &Logger.error("Operation failed #{&1}"))
+            |> Flume.run(:a, fn -> {:ok, 2} end)
+            |> Flume.run(:b, fn -> {:error, :for_some_reason} end)
+            |> Flume.result()
+
+          assert {:error, _, _} = flume
+        end)
+
+      assert log =~ "Operation failed for_some_reason"
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          flume =
+            Flume.new(on_error: &Logger.error("Operation #{&1} failed #{&2}"))
+            |> Flume.run(:a, fn -> {:ok, 2} end)
+            |> Flume.run(:b, fn -> {:error, :for_some_reason} end)
+            |> Flume.result()
+
+          assert {:error, _, _} = flume
+        end)
+
+      assert log =~ "Operation b failed for_some_reason"
+    end
+
     test "run/4 wait_for option awaits async tasks so that they are accessible in callback" do
       flume =
         Flume.new()
@@ -200,6 +234,23 @@ defmodule FlumeTest do
 
       assert log =~ "Operation b failed"
       assert log =~ "Operation failed"
+    end
+
+    test "run_async/3 runs global on_error callback on failure" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          flume =
+            Flume.new(on_error: &Logger.error("Operation #{&1} failed #{&2}"))
+            |> Flume.run(:a, fn -> {:ok, 2} end)
+            |> Flume.run_async(:b, fn data -> {:error, data.a * 2} end)
+            |> Flume.run_async(:c, fn -> {:error, 4} end)
+            |> Flume.result()
+
+          assert flume == {:error, %{c: 4, b: 4}, %{a: 2}}
+        end)
+
+      assert log =~ "Operation b failed"
+      assert log =~ "Operation c failed"
     end
 
     test "run_async/3 concurrently executes functions and resolves errors at end" do

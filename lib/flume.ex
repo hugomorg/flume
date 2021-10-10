@@ -7,7 +7,14 @@ defmodule Flume do
   @type tag :: atom()
   @type process_fun :: (map() -> {:ok, tag()} | {:error, atom()})
 
-  defstruct [:halt_on_errors, results: %{}, errors: %{}, halted: false, tasks: %{}]
+  defstruct [
+    :halt_on_errors,
+    results: %{},
+    errors: %{},
+    halted: false,
+    tasks: %{},
+    global_funs: %{}
+  ]
 
   @doc """
   Returns empty Flume struct.
@@ -15,17 +22,20 @@ defmodule Flume do
   Options:
 
   - `:halt_on_errors`: if `false`, the steps won't stop if a `Flume.run` step returns an error
+  - `:on_error`: callback which is invoked every time an error occurs. If it is 1-arity, it's given
+  the error reason, if 2-arity, it's given the tag and the reason
 
   ## Examples
 
-      iex> Flume.new()
-      %Flume{halt_on_errors: true}
+      iex> %Flume{} = Flume.new()
 
   """
   @spec new(list()) :: t()
   def new(opts \\ []) do
     halt_on_errors = Keyword.get(opts, :halt_on_errors, true)
-    %__MODULE__{halt_on_errors: halt_on_errors}
+    global_funs = %{on_error: Keyword.get(opts, :on_error)}
+
+    %__MODULE__{halt_on_errors: halt_on_errors, global_funs: global_funs}
   end
 
   @doc """
@@ -66,7 +76,7 @@ defmodule Flume do
     flume
   end
 
-  def run(%Flume{errors: errors} = flume, tag, process_fun, opts)
+  def run(%Flume{errors: errors, global_funs: global_funs} = flume, tag, process_fun, opts)
       when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
@@ -88,6 +98,7 @@ defmodule Flume do
           %Flume{flume | results: results}
 
         {:error, error} ->
+          maybe_apply_on_error(global_funs.on_error, error, tag)
           maybe_apply_on_error(on_error, error, tag)
           errors = Map.put(errors, tag, error)
           %Flume{flume | errors: errors, halted: halt_on_errors}
@@ -195,7 +206,7 @@ defmodule Flume do
     Enum.reduce(tasks, flume, &resolve_task/2)
   end
 
-  defp resolve_task({tag, %{task: task, opts: opts}}, %Flume{} = flume) do
+  defp resolve_task({tag, %{task: task, opts: opts}}, %Flume{global_funs: global_funs} = flume) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
 
@@ -205,6 +216,7 @@ defmodule Flume do
         %Flume{flume | results: Map.put(flume.results, tag, result)}
 
       {:error, reason} ->
+        maybe_apply_on_error(global_funs.on_error, reason, tag)
         maybe_apply_on_error(on_error, reason, tag)
         %Flume{flume | errors: Map.put(flume.errors, tag, reason), halted: true}
 
