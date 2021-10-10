@@ -1,61 +1,58 @@
 # Flume
 
-This library is meant to help with managing control flow, when there are lots of steps and some may go wrong. You have probably seen or tried something with `with` statements like this:
+This library is meant to help with managing control flow, when there are lots of steps and some may go wrong. You have probably seen or tried something complex along these lines with `with` statements. Most of the time, they work great.
+
+Let's use a hypothetical example that's not too far from the real world. Let's say you are processing an order from a customer in another country. You need to retrieve some information from a database, get an fx rate, get tax rates for that country, process the order, and finally store the result. Anything could fail too, so you have to annotate operations so you know which one failed. Using `with`, it may look something like this:
 
 ```elixir
-defmodule YourModule do
-  def call(id) do
+defmodule MyApp.Orders do
+  def process(order) do
     with
-      {:rates, {:ok, rates}} <- {:rates, fetch_rates()},
-      {:tax, {:ok, tax}} <- {:tax, fetch_tax()},
-      {:user, {:ok, user}} <- {:user, get_user(id)},
-      {:items, {:ok, items}} <- {:items, get_user_items(user)} do
-      # do something
+      {:customer, {:ok, customer}} <- {:customer, MyApp.Customers.get(order)},
+      {:tax, {:ok, tax}} <- {:tax, MyApp.Tax.rate(order)},
+      {:fx_rate, {:ok, fx_rate}} <- {:fx_rate, MyApp.Fx.rate(order)},
+      {:payment, {:ok, items}} <- {:payment, MyApp.Payments.process(order, tax, fx_rate)},
+      {:order, {:ok, order}} <- {:order, create(order, customer, tax, fx_rate)} do
+      order.id
     else
-      {:rates, {:error, error}} -> handle_error({:rates, error})
-      {:tax, {:error, error}} -> handle_error({:tax, error})
-      {:user, {:error, error}} -> handle_error({:user, error})
-      {:items, {:error, error}} -> handle_error({:items, error})
+      {:customer, {:error, error}} -> handle_error(:customer, error)
+      {:tax, {:error, error}} -> handle_error(:tax, error)
+      {:fx_rate, {:error, error}} -> handle_error(:fx_rate, error)
+      {:payment, {:error, error}} -> handle_error(:payment, error)
+      {:order, {:error, error}} -> handle_error(:order, error)
     end
   end
 
-  def handle_error(error) do
+  defp handle_error(step, error) do
     # do something
   end
 
-  def get_user(id) do
-    UserApi.get(id)
-  end
-
-  def get_user_items(user) do
-    ItemApi.all(user)
-  end
-
-  def fetch_rates do
-    RatesApi.call()
-  end
-
-  def fetch_tax do
-    TaxApi.call()
+  def create(order, customer, tax, fx_rate) do
+    # do something
   end
 end
 ```
 
-but that can easily get out of hand. `flume` allows you to do something which is arguably clearer:
+That can easily get out of hand and become hard to reason about. `flume` allows you to do something which is arguably clearer and more succinct:
 
 ```elixir
-defmodule YourModule do
-  def call(id) do
-    Flume.new()
-    |> Flume.run_async(&fetch_rates/0)
-    |> Flume.run_async(&fetch_tax/0)
-    |> Flume.run(fn -> get_user(id) end)
-    |> Flume.run(fn %{user: user} -> get_user_items(user) end)
+defmodule MyApp.Orders do
+  def process(order) do
+    Flume.new(on_error: &handle_error/2)
+    |> Flume.run_async(:customer, fn -> MyApp.Customers.get(order) end)
+    |> Flume.run_async(:tax, fn -> MyApp.Tax.rate(order) end)
+    |> Flume.run_async(:fx_rate, fn -> MyApp.Fx.rate(order) end)
+    |> Flume.run(:payment, &handle_payment(&1, order), wait_for: [:customer, :tax, :fx_rate])
+    |> Flume.run(:order, &handle_order(&1, order), on_success: &Map.fetch!(&1, :id))
     |> Flume.result()
-    |> case do
-      {:error, errors, _changes} -> handle_error(errors)
-      {:ok, results} -> # do something
-    end
+  end
+
+  defp handle_payment(%{fx_rate: fx_rate, tax: tax}, order) do
+    MyApp.Payments.process(order, tax, fx_rate)
+  end
+
+  defp handle_order(%{fx_rate: fx_rate, tax: tax, customer: customer}, order) do
+    create(order, customer, tax, fx_rate)
   end
 end
 ```
