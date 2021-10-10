@@ -162,11 +162,11 @@ defmodule Flume do
     {:ok, results}
   end
 
-  defp maybe_apply_on_success(_fun = nil, result, _tag), do: result
+  defp maybe_apply_on_success(nil = _fun, result, _tag), do: result
   defp maybe_apply_on_success(fun, result, _tag) when is_function(fun, 1), do: fun.(result)
   defp maybe_apply_on_success(fun, result, tag) when is_function(fun, 2), do: fun.(tag, result)
 
-  defp maybe_apply_on_error(_fun = nil, error, _tag), do: error
+  defp maybe_apply_on_error(nil = _fun, error, _tag), do: error
 
   defp maybe_apply_on_error(fun, error, _tag) when is_function(fun, 1) do
     fun.(error)
