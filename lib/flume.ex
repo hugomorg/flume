@@ -76,14 +76,14 @@ defmodule Flume do
     flume
   end
 
-  def run(%Flume{global_funs: global_funs} = flume, tag, process_fun, opts)
+  def run(%Flume{} = flume, tag, process_fun, opts)
       when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
     wait_for = Keyword.get(opts, :wait_for, [])
 
     # Synchronise tasks that need awaiting, and refresh results + errors
-    %Flume{results: results, halted: halted, halt_on_errors: halt_on_errors, errors: errors} =
+    %Flume{results: results, halted: halted} =
       flume = flume |> resolve_tasks(wait_for) |> Map.update!(:tasks, &Map.drop(&1, wait_for))
 
     # If some of the synced tasks have errored and halted pipeline, do not proceed
@@ -93,20 +93,9 @@ defmodule Flume do
       process_fun
       |> apply_process_callback(results)
       |> case do
-        {:ok, result} ->
-          result = maybe_apply_on_success(on_success, result, tag)
-          results = Map.put(results, tag, result)
-          %Flume{flume | results: results}
-
-        {:error, error} ->
-          maybe_apply_on_error(global_funs.on_error, error, tag)
-          maybe_apply_on_error(on_error, error, tag)
-          errors = Map.put(errors, tag, error)
-
-          %Flume{flume | errors: errors, halted: halt_on_errors}
-
-        bad_match ->
-          match_error(tag, bad_match)
+        {:ok, result} -> handle_process_callback_success(flume, tag, result, on_success)
+        {:error, reason} -> handle_process_callback_error(flume, tag, reason, on_error)
+        bad_match -> match_error(tag, bad_match)
       end
     end
   end
@@ -210,23 +199,17 @@ defmodule Flume do
 
   defp resolve_task(
          {tag, %{task: task, opts: opts}},
-         %Flume{global_funs: global_funs, halt_on_errors: halt_on_errors} = flume
+         %Flume{} = flume
        ) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
 
-    case Task.await(task) do
-      {:ok, result} ->
-        result = maybe_apply_on_success(on_success, result, tag)
-        %Flume{flume | results: Map.put(flume.results, tag, result)}
-
-      {:error, reason} ->
-        maybe_apply_on_error(global_funs.on_error, reason, tag)
-        maybe_apply_on_error(on_error, reason, tag)
-        %Flume{flume | errors: Map.put(flume.errors, tag, reason), halted: halt_on_errors}
-
-      bad_match ->
-        match_error(tag, bad_match)
+    task
+    |> Task.await()
+    |> case do
+      {:ok, result} -> handle_process_callback_success(flume, tag, result, on_success)
+      {:error, reason} -> handle_process_callback_error(flume, tag, reason, on_error)
+      bad_match -> match_error(tag, bad_match)
     end
   end
 
@@ -237,6 +220,29 @@ defmodule Flume do
   defp apply_process_callback(callback, _results) do
     callback.()
   end
+
+  defp handle_process_callback_success(%Flume{results: results} = flume, tag, result, on_success) do
+    result = maybe_apply_on_success(on_success, result, tag)
+    results = Map.put(results, tag, result)
+    %Flume{flume | results: results}
+  end
+
+  defp handle_process_callback_error(%Flume{} = flume, tag, error, on_error) do
+    flume
+    |> maybe_apply_error_callbacks(tag, error, on_error)
+    |> Map.update!(:errors, &Map.put(&1, tag, error))
+    |> maybe_halt()
+  end
+
+  defp maybe_apply_error_callbacks(%Flume{global_funs: global_funs} = flume, tag, error, on_error) do
+    maybe_apply_on_error(global_funs.on_error, error, tag)
+    maybe_apply_on_error(on_error, error, tag)
+    flume
+  end
+
+  defp maybe_halt(%Flume{halt_on_errors: false} = flume), do: flume
+  defp maybe_halt(%Flume{halted: true} = flume), do: flume
+  defp maybe_halt(%Flume{} = flume), do: %Flume{flume | halted: true}
 
   defp match_error(tag, bad_match) do
     raise "#{tag}: Expected either an `{:ok, result}` or `{:error, reason}` tuple " <>
