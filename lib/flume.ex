@@ -76,16 +76,17 @@ defmodule Flume do
     flume
   end
 
-  def run(%Flume{errors: errors, global_funs: global_funs} = flume, tag, process_fun, opts)
+  def run(%Flume{global_funs: global_funs} = flume, tag, process_fun, opts)
       when is_atom(tag) and (is_function(process_fun, 1) or is_function(process_fun, 0)) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
     wait_for = Keyword.get(opts, :wait_for, [])
 
-    %Flume{results: results, halted: halted, halt_on_errors: halt_on_errors} =
+    # Synchronise tasks that need awaiting, and refresh results + errors
+    %Flume{results: results, halted: halted, halt_on_errors: halt_on_errors, errors: errors} =
       flume = flume |> resolve_tasks(wait_for) |> Map.update!(:tasks, &Map.drop(&1, wait_for))
 
-    # Check synchronised tasks have halted the pipeline
+    # If some of the synced tasks have errored and halted pipeline, do not proceed
     if halted do
       flume
     else
@@ -101,6 +102,7 @@ defmodule Flume do
           maybe_apply_on_error(global_funs.on_error, error, tag)
           maybe_apply_on_error(on_error, error, tag)
           errors = Map.put(errors, tag, error)
+
           %Flume{flume | errors: errors, halted: halt_on_errors}
 
         bad_match ->
@@ -206,7 +208,10 @@ defmodule Flume do
     Enum.reduce(tasks, flume, &resolve_task/2)
   end
 
-  defp resolve_task({tag, %{task: task, opts: opts}}, %Flume{global_funs: global_funs} = flume) do
+  defp resolve_task(
+         {tag, %{task: task, opts: opts}},
+         %Flume{global_funs: global_funs, halt_on_errors: halt_on_errors} = flume
+       ) do
     on_success = Keyword.get(opts, :on_success)
     on_error = Keyword.get(opts, :on_error)
 
@@ -218,7 +223,7 @@ defmodule Flume do
       {:error, reason} ->
         maybe_apply_on_error(global_funs.on_error, reason, tag)
         maybe_apply_on_error(on_error, reason, tag)
-        %Flume{flume | errors: Map.put(flume.errors, tag, reason), halted: true}
+        %Flume{flume | errors: Map.put(flume.errors, tag, reason), halted: halt_on_errors}
 
       bad_match ->
         match_error(tag, bad_match)

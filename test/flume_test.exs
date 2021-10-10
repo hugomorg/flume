@@ -176,9 +176,23 @@ defmodule FlumeTest do
         end)
         |> Flume.run(:b, fn -> {:should, :not_run} end, wait_for: [:a])
 
-      assert flume.results == %{}
       assert flume.tasks == %{}
       assert flume.errors == %{a: :ready}
+      assert flume.halted
+    end
+
+    test "run/4 wait_for option when async errors doesn't stop flume if halt_on_errors false" do
+      flume =
+        Flume.new(halt_on_errors: false)
+        |> Flume.run_async(:a, fn ->
+          :timer.sleep(1)
+          {:error, :ready}
+        end)
+        |> Flume.run(:b, fn -> {:error, :another_error} end, wait_for: [:a])
+
+      assert flume.tasks == %{}
+      assert flume.errors == %{a: :ready, b: :another_error}
+      refute flume.halted
     end
 
     test "run/3 rejects operations that don't return accepted tuples" do
