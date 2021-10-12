@@ -4,7 +4,7 @@ defmodule Flume.MixProject do
   def project do
     [
       app: :flume,
-      version: "0.7.0",
+      version: "1.0.0",
       elixir: "~> 1.11",
       start_permanent: Mix.env() == :prod,
       deps: deps()
