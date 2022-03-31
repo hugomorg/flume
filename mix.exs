@@ -12,7 +12,8 @@ defmodule Flume.MixProject do
       package: [
         licenses: ["MIT"],
         links: %{"GitHub" => "https://github.com/HPJM/flume"}
-      ]
+      ],
+      source_url: "https://github.com/HPJM/flume"
     ]
   end
 
