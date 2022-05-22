@@ -7,12 +7,11 @@ Let's use a hypothetical example that's not too far from the real world. Let's s
 ```elixir
 defmodule MyApp.Orders do
   def process(order) do
-    with
-      {:customer, {:ok, customer}} <- {:customer, MyApp.Customers.get(order)},
-      {:tax, {:ok, tax}} <- {:tax, MyApp.Tax.rate(order)},
-      {:fx_rate, {:ok, fx_rate}} <- {:fx_rate, MyApp.Fx.rate(order)},
-      {:payment, {:ok, items}} <- {:payment, MyApp.Payments.process(order, tax, fx_rate)},
-      {:order, {:ok, order}} <- {:order, create(order, customer, tax, fx_rate)} do
+    with {:customer, {:ok, customer}} <- {:customer, MyApp.Customers.get(order)},
+         {:tax, {:ok, tax}} <- {:tax, MyApp.Tax.rate(order)},
+         {:fx_rate, {:ok, fx_rate}} <- {:fx_rate, MyApp.Fx.rate(order)},
+         {:payment, {:ok, items}} <- {:payment, MyApp.Payments.process(order, tax, fx_rate)},
+         {:order, {:ok, order}} <- {:order, create(order, customer, tax, fx_rate)} do
       order.id
     else
       {:customer, {:error, error}} -> handle_error(:customer, error)
@@ -37,14 +36,16 @@ That can easily get out of hand and become hard to reason about. `flume` allows 
 
 ```elixir
 defmodule MyApp.Orders do
+  import Flume
+
   def process(order) do
     Flume.new(on_error: &handle_error/2)
-    |> Flume.run_async(:customer, fn -> MyApp.Customers.get(order) end)
-    |> Flume.run_async(:tax, fn -> MyApp.Tax.rate(order) end)
-    |> Flume.run_async(:fx_rate, fn -> MyApp.Fx.rate(order) end)
-    |> Flume.run(:payment, &handle_payment(&1, order), wait_for: [:customer, :tax, :fx_rate])
-    |> Flume.run(:order, &handle_order(&1, order), on_success: &Map.fetch!(&1, :id))
-    |> Flume.result()
+    |> run_async(:customer, fn -> MyApp.Customers.get(order) end)
+    |> run_async(:tax, fn -> MyApp.Tax.rate(order) end)
+    |> run_async(:fx_rate, fn -> MyApp.Fx.rate(order) end)
+    |> run(:payment, &handle_payment(&1, order), wait_for: [:customer, :tax, :fx_rate])
+    |> run(:order, &handle_order(&1, order), on_success: &Map.fetch!(&1, :id))
+    |> result()
   end
 
   defp handle_payment(%{fx_rate: fx_rate, tax: tax}, order) do
@@ -75,4 +76,3 @@ end
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at [https://hexdocs.pm/flume](https://hexdocs.pm/flume).
-
