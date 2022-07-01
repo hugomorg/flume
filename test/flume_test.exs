@@ -9,7 +9,7 @@ defmodule FlumeTest do
              errors: %{},
              halted: false,
              halt_on_errors: true,
-             global_funs: %{on_error: nil}
+             on_error: nil
            }
   end
 

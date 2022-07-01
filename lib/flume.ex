@@ -13,7 +13,7 @@ defmodule Flume do
     errors: %{},
     halted: false,
     tasks: %{},
-    global_funs: %{}
+    on_error: nil
   ]
 
   defmodule FlumeError do
@@ -37,9 +37,9 @@ defmodule Flume do
   @spec new(list()) :: t()
   def new(opts \\ []) do
     halt_on_errors = Keyword.get(opts, :halt_on_errors, true)
-    global_funs = %{on_error: Keyword.get(opts, :on_error)}
+    on_error = Keyword.get(opts, :on_error)
 
-    %__MODULE__{halt_on_errors: halt_on_errors, global_funs: global_funs}
+    %__MODULE__{halt_on_errors: halt_on_errors, on_error: on_error}
   end
 
   @doc """
@@ -221,7 +221,7 @@ defmodule Flume do
     callback.(results)
   end
 
-  defp apply_process_callback(callback, _results) do
+  defp apply_process_callback(callback, _results) when is_function(callback, 0) do
     callback.()
   end
 
@@ -238,9 +238,10 @@ defmodule Flume do
     |> maybe_halt()
   end
 
-  defp maybe_apply_error_callbacks(%Flume{global_funs: global_funs} = flume, tag, error, on_error) do
-    maybe_apply_on_error(global_funs.on_error, error, tag)
+  defp maybe_apply_error_callbacks(%Flume{} = flume, tag, error, on_error) do
+    maybe_apply_on_error(flume.on_error, error, tag)
     maybe_apply_on_error(on_error, error, tag)
+
     flume
   end
 

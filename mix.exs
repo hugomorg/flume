@@ -14,7 +14,7 @@ defmodule Flume.MixProject do
         links: %{"GitHub" => "https://github.com/HPJM/flume"}
       ],
       docs: [
-        source_ref: "master",
+        source_ref: "master"
       ],
       source_url: "https://github.com/HPJM/flume"
     ]
